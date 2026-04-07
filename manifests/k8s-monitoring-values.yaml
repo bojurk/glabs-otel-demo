@@ -1,10 +1,9 @@
 # ─────────────────────────────────────────────────────────────────────────────
-# Grafana Kubernetes Monitoring — Helm values template
+# Grafana Kubernetes Monitoring — Helm values (chart v2)
 # Chart: grafana/k8s-monitoring
 #
-# Uses externalServices (the chart's stable, well-documented format).
-# Prometheus and Loki hosts are derived automatically from the OTLP endpoint
-# region — the wizard fills in all ${...} placeholders at install time.
+# Uses a single OTLP destination — the same Grafana Cloud gateway as the
+# OTel Demo Collector.  No separate Prometheus or Loki credentials needed.
 #
 # Do NOT run helm install against this file directly — use run.sh / setup.py.
 # ─────────────────────────────────────────────────────────────────────────────
@@ -12,42 +11,46 @@
 cluster:
   name: "otel-lab"
 
-externalServices:
-  prometheus:
-    host: "${GRAFANA_PROMETHEUS_HOST}"
-    basicAuth:
-      username: "${GRAFANA_PROMETHEUS_USERNAME}"
+destinations:
+  grafana-cloud:
+    type: otlp
+    url: "${GRAFANA_OTLP_ENDPOINT}"
+    protocol: http
+    auth:
+      type: basic
+      username: "${GRAFANA_INSTANCE_ID}"
       password: "${GRAFANA_API_TOKEN}"
+    metrics: {enabled: true}
+    logs:    {enabled: true}
+    traces:  {enabled: false}
 
-  loki:
-    host: "${GRAFANA_LOKI_HOST}"
-    basicAuth:
-      username: "${GRAFANA_LOKI_USERNAME}"
-      password: "${GRAFANA_API_TOKEN}"
-
-metrics:
+clusterMetrics:
   enabled: true
+  collector: alloy-metrics
 
-logs:
-  pod_logs:
+hostMetrics:
+  enabled: true
+  collector: alloy-metrics
+  linuxHosts:
     enabled: true
-  cluster_events:
-    enabled: true
+  windowsHosts:
+    enabled: false
 
-traces:
-  enabled: false
+podLogsViaLoki:
+  enabled: true
+  collector: alloy-logs
 
-opencost:
-  enabled: false
-
-alloy-metrics:
+clusterEvents:
   enabled: true
 
-alloy-logs:
-  enabled: true
+collectors:
+  alloy-metrics:
+    presets: [clustered, statefulset]
+  alloy-logs:
+    presets: [filesystem-log-reader, daemonset]
 
-alloy-events:
-  enabled: true
-
-alloy-profiles:
-  enabled: false
+telemetryServices:
+  kube-state-metrics:
+    deploy: true
+  node-exporter:
+    deploy: true

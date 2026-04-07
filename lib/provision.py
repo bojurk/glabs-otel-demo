@@ -323,20 +323,11 @@ def deploy_k8s_monitoring(config: dict, console: Console):
 
     template = (_MANIFESTS_DIR / "k8s-monitoring-values.yaml").read_text()
 
-    # Strip any path from the host values — Grafana Cloud shows the full
-    # remote_write URL (e.g. .../api/prom/push) but the chart only wants the host.
-    from urllib.parse import urlparse
-    def _host_only(url: str) -> str:
-        p = urlparse(url)
-        return f"{p.scheme}://{p.netloc}" if p.netloc else url
-
     rendered = template
     for placeholder, value in {
-        "${GRAFANA_PROMETHEUS_HOST}":     _host_only(config["GRAFANA_PROMETHEUS_HOST"]),
-        "${GRAFANA_PROMETHEUS_USERNAME}": config["GRAFANA_PROMETHEUS_USERNAME"],
-        "${GRAFANA_LOKI_HOST}":           _host_only(config["GRAFANA_LOKI_HOST"]),
-        "${GRAFANA_LOKI_USERNAME}":       config["GRAFANA_LOKI_USERNAME"],
-        "${GRAFANA_API_TOKEN}":           config["GRAFANA_API_TOKEN"],
+        "${GRAFANA_OTLP_ENDPOINT}": config["GRAFANA_OTLP_ENDPOINT"],
+        "${GRAFANA_INSTANCE_ID}":   config["GRAFANA_INSTANCE_ID"],
+        "${GRAFANA_API_TOKEN}":     config["GRAFANA_API_TOKEN"],
     }.items():
         rendered = rendered.replace(placeholder, value)
 
@@ -352,14 +343,13 @@ def deploy_k8s_monitoring(config: dict, console: Console):
         _scp(config, local_tmp, remote_values)
         _remote(config, (
             f"helm upgrade --install k8s-monitoring grafana/k8s-monitoring "
-            f"--version '^1' "
             f"--namespace monitoring --create-namespace "
             f"--values {remote_values} "
             f"--timeout 10m --wait"
         ))
     finally:
-        os.unlink(local_tmp)                                    # delete from local disk
-        _remote(config, f"rm -f {remote_values}", check=False) # delete from VM
+        os.unlink(local_tmp)
+        _remote(config, f"rm -f {remote_values}", check=False)
 
 
 # ── Phase: validate ───────────────────────────────────────────────────────────
@@ -367,21 +357,20 @@ def deploy_k8s_monitoring(config: dict, console: Console):
 def validate(config: dict, console: Console):
     """Post-install sanity checks — pod counts and collector log scan."""
 
-    for ns, label in [("otel-demo", "OTel Demo"), ("monitoring", "K8s Monitoring")]:
-        r = _remote(
-            config,
-            f"kubectl get pods -n {ns} --no-headers "
-            f"| grep -v -E 'Running|Completed' | wc -l",
-            check=False,
+    r = _remote(
+        config,
+        "kubectl get pods -n otel-demo --no-headers "
+        "| grep -v -E 'Running|Completed' | wc -l",
+        check=False,
+    )
+    not_ready = r.stdout.strip() if r.returncode == 0 else "?"
+    if not_ready == "0":
+        console.print("  [green]✓[/green] OTel Demo: all pods Running")
+    else:
+        console.print(
+            f"  [yellow]⚠[/yellow]  OTel Demo: {not_ready} pod(s) not yet Running "
+            f"(images may still be pulling — this is normal)"
         )
-        not_ready = r.stdout.strip() if r.returncode == 0 else "?"
-        if not_ready == "0":
-            console.print(f"  [green]✓[/green] {label}: all pods Running")
-        else:
-            console.print(
-                f"  [yellow]⚠[/yellow]  {label}: {not_ready} pod(s) not yet Running "
-                f"(images may still be pulling — this is normal)"
-            )
 
     # Scan collector logs for auth errors
     r = _remote(

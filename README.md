@@ -10,12 +10,10 @@ Clone the repo, answer a few prompts, walk away. Everything else is automated.
 ```
 GCP VM  (e2-standard-4 · Ubuntu 22.04 · 50 GB SSD)
 └── K3s (lightweight Kubernetes)
-    ├── otel-demo namespace
-    │   ├── ~20 microservices  — fake e-commerce store with always-on load generator
-    │   └── OTel Collector     — receives all app telemetry, forwards to Grafana Cloud
-    │                            traces · metrics · logs  (+ collector self-monitoring)
-    └── monitoring namespace  (optional)
-        └── Grafana Alloy      — scrapes Kubernetes cluster/node/pod metrics
+    └── otel-demo namespace
+        ├── ~20 microservices  — fake e-commerce store with always-on load generator
+        └── OTel Collector     — receives all app telemetry, forwards to Grafana Cloud
+                                 traces · metrics · logs  (+ collector self-monitoring)
 ```
 
 Everything flows to **your** Grafana Cloud stack via the OTLP gateway.
@@ -75,18 +73,6 @@ All found at **grafana.com → your org → your stack**:
 | **Instance ID** | Click the **Grafana** tile → Details → **Instance ID** (a number like `1035398`) |
 | **API Token** | **Access Policies** → Create token → scopes: `metrics:write`, `logs:write`, `traces:write` |
 
-### Grafana Cloud — Kubernetes infrastructure monitoring (optional)
-
-Deploys Grafana Alloy to collect cluster/node/pod metrics. Skip this if you only want the OTel Demo app signals.
-
-All found at **grafana.com → your org → your stack**:
-
-| What | Where exactly |
-|---|---|
-| **Prometheus URL** | Click the **Prometheus** tile → Details → **Remote Write Endpoint** (paste the full URL — path is stripped automatically) |
-| **Prometheus Username** | Same Details page → **Username** (a number) |
-| **Loki URL** | Click the **Loki** tile → Details → **URL** (paste the full URL — path is stripped automatically) |
-| **Loki Username** | Same Details page → **Username** (a number) |
 
 ---
 
@@ -152,6 +138,14 @@ Six pre-built dashboards are included in `manifests/dashboards/` in this repo. T
 | **opentelemetry-collector** | Collector internal health — spans received/exported, batch sizes, memory |
 
 When importing, Grafana will prompt you to map each datasource — select your Grafana Cloud Prometheus, Tempo, and Loki datasources.
+
+### Kubernetes infrastructure monitoring (optional)
+
+Add cluster/node/pod metrics and logs via Grafana Alloy. Grafana Cloud has a built-in guided setup:
+
+**grafana.com → your stack → Kubernetes tile → Start sending data**
+
+It generates the exact `helm install` command with your credentials pre-filled. Uses the same OTLP endpoint — no new tokens needed.
 
 ---
 
@@ -221,13 +215,6 @@ The wizard is idempotent — helm upgrades and kubectl applies are safe to re-ru
 │  │  checkout  ──┤──► OTel Collector ──► Grafana Cloud OTLP gateway  │   │
 │  │  payment   ──┤     (all signals)      traces / metrics / logs     │   │
 │  │  ... +15   ──┘     self-monitoring ──► otelcol_* metrics         │   │
-│  │                                                                   │   │
-│  └───────────────────────────────────────────────────────────────── ┘   │
-│                                                                          │
-│  ┌──────────── monitoring namespace (optional) ─────────────────────┐   │
-│  │                                                                   │   │
-│  │  Grafana Alloy ──► Prometheus remote_write  ─► Grafana Cloud     │   │
-│  │  (k8s-monitoring)  Loki push                                     │   │
 │  │                                                                   │   │
 │  └───────────────────────────────────────────────────────────────── ┘   │
 │                                                                          │

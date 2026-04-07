@@ -45,7 +45,6 @@ from lib.provision import (
     install_k3s_and_tools,
     setup_kubernetes,
     deploy_otel_demo,
-    deploy_k8s_monitoring,
     validate,
     teardown_vm,
 )
@@ -61,11 +60,6 @@ _CONFIG_KEYS = [
     "GRAFANA_OTLP_ENDPOINT",
     "GRAFANA_INSTANCE_ID",
     "GRAFANA_API_TOKEN",
-    # Optional — only set if the user enables Kubernetes infrastructure monitoring
-    "GRAFANA_PROMETHEUS_HOST",
-    "GRAFANA_PROMETHEUS_USERNAME",
-    "GRAFANA_LOKI_HOST",
-    "GRAFANA_LOKI_USERNAME",
 ]
 
 
@@ -148,6 +142,13 @@ def show_completion(config: dict):
     console.print("  Run this command, then open http://localhost:8080")
     console.print()
     console.print(f"  gcloud compute ssh {vm} --project {p} --zone {z} --ssh-flag=\"-L 8080:localhost:8080\" -- kubectl port-forward -n otel-demo svc/otel-demo-frontendproxy 8080:8080")
+    console.print()
+
+    console.print("[bold]── Kubernetes infrastructure monitoring (optional) ──────[/bold]")
+    console.print("  Add cluster/node/pod metrics and logs via Grafana Alloy.")
+    console.print("  Grafana Cloud walks you through it — go to:")
+    console.print("  [bold]grafana.com → your stack → Kubernetes tile → Start sending data[/bold]")
+    console.print("  Uses the same OTLP credentials — no new tokens needed.")
     console.print()
 
     console.print("[bold]── SSH into the VM ─────────────────────────────────────[/bold]")
@@ -266,49 +267,6 @@ def prompt_config(existing: dict) -> dict:
         password=True,
     )
 
-    console.print()
-    console.rule("[bold]Kubernetes Infrastructure Monitoring (optional)[/bold]")
-    console.print()
-    console.print("  Deploys Grafana Alloy to scrape cluster, node, and pod metrics.")
-    console.print()
-    console.print("  If you enable this, you'll need from [bold]grafana.com → your stack[/bold]:")
-    console.print()
-    console.print("  [bold]Prometheus URL[/bold]       →  Prometheus tile → Details → Remote Write Endpoint")
-    console.print("                         [dim](paste the full URL — path is stripped automatically)[/dim]")
-    console.print("  [bold]Prometheus Username[/bold]  →  same Details page → Username  [dim](a number)[/dim]")
-    console.print("  [bold]Loki URL[/bold]             →  Loki tile → Details → URL")
-    console.print("                         [dim](paste the full URL — path is stripped automatically)[/dim]")
-    console.print("  [bold]Loki Username[/bold]        →  same Details page → Username  [dim](a number)[/dim]")
-    console.print()
-
-    enable_k8s_mon = Confirm.ask(
-        "  Enable Kubernetes infrastructure monitoring?",
-        default=bool(config.get("GRAFANA_PROMETHEUS_HOST")),
-    )
-
-    if enable_k8s_mon:
-        console.print()
-        config["GRAFANA_PROMETHEUS_HOST"] = Prompt.ask(
-            "  Prometheus URL",
-            default=config.get("GRAFANA_PROMETHEUS_HOST") or "",
-        )
-        config["GRAFANA_PROMETHEUS_USERNAME"] = Prompt.ask(
-            "  Prometheus Username",
-            default=config.get("GRAFANA_PROMETHEUS_USERNAME") or "",
-        )
-        config["GRAFANA_LOKI_HOST"] = Prompt.ask(
-            "  Loki URL",
-            default=config.get("GRAFANA_LOKI_HOST") or "",
-        )
-        config["GRAFANA_LOKI_USERNAME"] = Prompt.ask(
-            "  Loki Username",
-            default=config.get("GRAFANA_LOKI_USERNAME") or "",
-        )
-    else:
-        for key in ("GRAFANA_PROMETHEUS_HOST", "GRAFANA_PROMETHEUS_USERNAME",
-                    "GRAFANA_LOKI_HOST", "GRAFANA_LOKI_USERNAME"):
-            config[key] = ""
-
     return config
 
 
@@ -327,12 +285,8 @@ def run_setup(config: dict, skip_vm: bool):
         ("Installing K3s + Helm",   lambda: install_k3s_and_tools(config, console)),
         ("Configuring Kubernetes",  lambda: setup_kubernetes(config, console)),
         ("Deploying OTel Demo",     lambda: deploy_otel_demo(config, console)),
+        ("Validating",              lambda: validate(config, console)),
     ]
-
-    if config.get("GRAFANA_PROMETHEUS_HOST"):
-        phases.append(("Deploying K8s Monitoring", lambda: deploy_k8s_monitoring(config, console)))
-
-    phases.append(("Validating", lambda: validate(config, console)))
 
     total = len(phases)
     for idx, (label, fn) in enumerate(phases, 1):
