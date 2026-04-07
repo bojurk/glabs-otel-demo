@@ -11,6 +11,7 @@ import json
 import os
 import shlex
 import shutil
+import ssl
 import subprocess
 import tempfile
 import textwrap
@@ -19,6 +20,8 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 from typing import Optional
+
+import certifi
 
 from rich.console import Console
 
@@ -398,8 +401,9 @@ def _grafana_request(grafana_url: str, method: str, path: str,
             "Accept": "application/json",
         },
     )
+    ssl_ctx = ssl.create_default_context(cafile=certifi.where())
     try:
-        with urllib.request.urlopen(req, timeout=15) as resp:
+        with urllib.request.urlopen(req, timeout=15, context=ssl_ctx) as resp:
             return json.loads(resp.read())
     except urllib.error.HTTPError as e:
         body = e.read().decode(errors="replace")
