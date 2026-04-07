@@ -45,6 +45,7 @@ from lib.provision import (
     install_k3s_and_tools,
     setup_kubernetes,
     deploy_otel_demo,
+    deploy_k8s_monitoring,
     validate,
     teardown_vm,
 )
@@ -54,6 +55,7 @@ SCRIPT_DIR = Path(__file__).parent
 ENV_FILE    = SCRIPT_DIR / ".env"
 
 _CONFIG_KEYS = [
+    "SETUP_MODE",
     "VM_NAME",
     "GCP_PROJECT_ID",
     "GCP_ZONE",
@@ -144,12 +146,24 @@ def show_completion(config: dict):
     console.print(f"  gcloud compute ssh {vm} --project {p} --zone {z} --ssh-flag=\"-L 8080:localhost:8080\" -- kubectl port-forward -n otel-demo svc/otel-demo-frontendproxy 8080:8080")
     console.print()
 
-    console.print("[bold]── Kubernetes infrastructure monitoring (optional) ──────[/bold]")
-    console.print("  Add cluster/node/pod metrics and logs via Grafana Alloy.")
-    console.print("  Grafana Cloud walks you through it — go to:")
-    console.print("  [bold]grafana.com → your stack → Kubernetes tile → Start sending data[/bold]")
-    console.print("  Uses the same OTLP credentials — no new tokens needed.")
-    console.print()
+    if config.get("SETUP_MODE") == "full":
+        console.print("[bold]── Kubernetes Monitoring ───────────────────────────────[/bold]")
+        console.print("  Grafana Alloy is deployed and sending cluster, node, and pod data.")
+        console.print("  Open Grafana Cloud → [bold]Kubernetes[/bold] in the left nav to explore.")
+        console.print()
+        console.print("[bold]── Application Observability ───────────────────────────[/bold]")
+        console.print("  The OTel Demo is instrumented with OpenTelemetry and sending traces,")
+        console.print("  metrics, and logs — the prerequisites for Application Observability")
+        console.print("  are already in place.")
+        console.print("  Open Grafana Cloud → [bold]Application[/bold] in the left nav to explore.")
+        console.print()
+    else:
+        console.print("[bold]── Kubernetes infrastructure monitoring (optional) ──────[/bold]")
+        console.print("  Add cluster/node/pod metrics and logs via Grafana Alloy.")
+        console.print("  Grafana Cloud walks you through it — go to:")
+        console.print("  [bold]grafana.com → your stack → Kubernetes tile → Start sending data[/bold]")
+        console.print("  Uses the same OTLP credentials — no new tokens needed.")
+        console.print()
 
     console.print("[bold]── SSH into the VM ─────────────────────────────────────[/bold]")
     console.print(f"  gcloud compute ssh {vm} --project {p} --zone {z}")
@@ -209,6 +223,23 @@ def save_config(config: dict):
 
 def prompt_config(existing: dict) -> dict:
     config = dict(existing)
+
+    # ── Mode selection ────────────────────────────────────────────────────────
+    console.rule("[bold]Setup Mode[/bold]")
+    console.print()
+    console.print("  [bold][1] Guided[/bold]    VM + OTel Demo only.")
+    console.print("               Learn to configure Kubernetes Monitoring and")
+    console.print("               Application Observability yourself in Grafana Cloud.")
+    console.print()
+    console.print("  [bold][2] Full Auto[/bold]  VM + OTel Demo + Grafana Alloy.")
+    console.print("               Kubernetes Monitoring and Application Observability")
+    console.print("               ready to use immediately — no manual steps.")
+    console.print()
+
+    _mode_default = "2" if config.get("SETUP_MODE") == "full" else "1"
+    _mode_choice = Prompt.ask("  Mode", choices=["1", "2"], default=_mode_default)
+    config["SETUP_MODE"] = "full" if _mode_choice == "2" else "guided"
+    console.print()
 
     # Fill GCP fields from gcloud config if not already saved in .env
     gcp_defaults = _detect_gcp_defaults()
@@ -285,8 +316,14 @@ def run_setup(config: dict, skip_vm: bool):
         ("Installing K3s + Helm",   lambda: install_k3s_and_tools(config, console)),
         ("Configuring Kubernetes",  lambda: setup_kubernetes(config, console)),
         ("Deploying OTel Demo",     lambda: deploy_otel_demo(config, console)),
-        ("Validating",              lambda: validate(config, console)),
     ]
+
+    if config.get("SETUP_MODE") == "full":
+        phases.append(
+            ("Deploying Grafana Alloy (k8s monitoring)", lambda: deploy_k8s_monitoring(config, console))
+        )
+
+    phases.append(("Validating", lambda: validate(config, console)))
 
     total = len(phases)
     for idx, (label, fn) in enumerate(phases, 1):
