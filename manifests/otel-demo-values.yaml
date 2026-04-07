@@ -71,6 +71,25 @@ opentelemetry-collector:
 
     service:
       extensions: [health_check, basicauth/grafana]
+      telemetry:
+        metrics:
+          readers:
+            - periodic:
+                exporter:
+                  otlp:
+                    protocol: http/protobuf
+                    endpoint: "${env:GRAFANA_CLOUD_OTLP_ENDPOINT}/v1/metrics"
+                    headers:
+                      authorization: "${env:GRAFANA_CLOUD_BASIC_AUTH_HEADER}"
+        logs:
+          processors:
+            - batch:
+                exporter:
+                  otlp:
+                    protocol: http/protobuf
+                    endpoint: "${env:GRAFANA_CLOUD_OTLP_ENDPOINT}/v1/logs"
+                    headers:
+                      authorization: "${env:GRAFANA_CLOUD_BASIC_AUTH_HEADER}"
       pipelines:
         traces:
           receivers:  [otlp]

@@ -6,6 +6,7 @@ the GCP VM exclusively via `gcloud compute ssh` and `gcloud compute scp` so
 the SE's machine needs only gcloud installed — no direct SSH key management.
 """
 
+import base64
 import os
 import shlex
 import shutil
@@ -227,6 +228,10 @@ def install_k3s_and_tools(config: dict, console: Console):
 def setup_kubernetes(config: dict, console: Console):
     """Create namespaces and inject Grafana Cloud credentials as K8s Secrets."""
 
+    basic_auth_header = "Basic " + base64.b64encode(
+        f"{config['GRAFANA_INSTANCE_ID']}:{config['GRAFANA_API_TOKEN']}".encode()
+    ).decode()
+
     # NOTE: This is a plain string (not an f-string).
     # The $VARIABLE references are bash variables set by the env_vars dict below.
     script = textwrap.dedent("""\
@@ -241,14 +246,18 @@ def setup_kubernetes(config: dict, console: Console):
           --namespace=otel-demo \\
           --from-literal=GRAFANA_INSTANCE_ID="$GRAFANA_INSTANCE_ID" \\
           --from-literal=GRAFANA_API_TOKEN="$GRAFANA_API_TOKEN" \\
+          --from-literal=GRAFANA_CLOUD_OTLP_ENDPOINT="$GRAFANA_CLOUD_OTLP_ENDPOINT" \\
+          --from-literal=GRAFANA_CLOUD_BASIC_AUTH_HEADER="$GRAFANA_CLOUD_BASIC_AUTH_HEADER" \\
           --dry-run=client -o yaml | kubectl apply -f -
 
         echo "==> Secrets created."
     """)
 
     _run_script(config, script, env_vars={
-        "GRAFANA_INSTANCE_ID": config["GRAFANA_INSTANCE_ID"],
-        "GRAFANA_API_TOKEN":   config["GRAFANA_API_TOKEN"],
+        "GRAFANA_INSTANCE_ID":             config["GRAFANA_INSTANCE_ID"],
+        "GRAFANA_API_TOKEN":               config["GRAFANA_API_TOKEN"],
+        "GRAFANA_CLOUD_OTLP_ENDPOINT":     config["GRAFANA_OTLP_ENDPOINT"].removesuffix("/otlp"),
+        "GRAFANA_CLOUD_BASIC_AUTH_HEADER": basic_auth_header,
     })
 
 
@@ -289,9 +298,9 @@ def deploy_k8s_monitoring(config: dict, console: Console):
 
     rendered = template
     for placeholder, value in {
-        "${GRAFANA_PROMETHEUS_HOST}":     config["_GRAFANA_PROMETHEUS_HOST"],
+        "${GRAFANA_PROMETHEUS_HOST}":     config["GRAFANA_PROMETHEUS_HOST"],
         "${GRAFANA_PROMETHEUS_USERNAME}": config["GRAFANA_PROMETHEUS_USERNAME"],
-        "${GRAFANA_LOKI_HOST}":           config["_GRAFANA_LOKI_HOST"],
+        "${GRAFANA_LOKI_HOST}":           config["GRAFANA_LOKI_HOST"],
         "${GRAFANA_LOKI_USERNAME}":       config["GRAFANA_LOKI_USERNAME"],
         "${GRAFANA_API_TOKEN}":           config["GRAFANA_API_TOKEN"],
     }.items():
@@ -309,7 +318,7 @@ def deploy_k8s_monitoring(config: dict, console: Console):
         _scp(config, local_tmp, remote_values)
         _remote(config, (
             f"helm upgrade --install k8s-monitoring grafana/k8s-monitoring "
-            f"--namespace monitoring "
+            f"--namespace monitoring --create-namespace "
             f"--values {remote_values} "
             f"--timeout 10m --wait"
         ))
