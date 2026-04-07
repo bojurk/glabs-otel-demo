@@ -1186,5 +1186,6 @@
   "timezone": "",
   "title": "Demo Dashboard",
   "version": 1,
-  "weekStart": ""
+  "weekStart": "",
+  "uid": "otellab-demo"
 }

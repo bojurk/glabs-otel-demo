@@ -456,5 +456,6 @@
   "timepicker": {},
   "timezone": "browser",
   "title": "Cart Service Exemplars",
-  "version": 1
+  "version": 1,
+  "uid": "otellab-exemplars"
 }

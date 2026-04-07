@@ -1032,5 +1032,6 @@
   "timezone": "",
   "title": "Spanmetrics Demo Dashboard",
   "version": 1,
-  "weekStart": ""
+  "weekStart": "",
+  "uid": "otellab-spanmetrics"
 }

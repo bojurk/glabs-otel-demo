@@ -2259,5 +2259,6 @@
   "timepicker": {},
   "timezone": "",
   "title": "APM Dashboard (Jaeger, Prometheus, OpenSearch)",
-  "version": 1
+  "version": 1,
+  "uid": "otellab-apm"
 }

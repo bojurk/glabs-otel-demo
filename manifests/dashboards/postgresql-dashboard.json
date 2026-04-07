@@ -1466,5 +1466,6 @@
   "timepicker": {},
   "timezone": "browser",
   "title": "PostgreSQL",
-  "version": 1
+  "version": 1,
+  "uid": "otellab-postgresql"
 }

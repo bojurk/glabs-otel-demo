@@ -5765,5 +5765,6 @@
   },
   "timezone": "browser",
   "title": "OpenTelemetry Collector",
-  "version": 1
+  "version": 1,
+  "uid": "otellab-collector"
 }
