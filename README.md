@@ -75,15 +75,6 @@ All found at **grafana.com → your org → your stack**:
 | **Instance ID** | Click the **Grafana** tile → Details → **Instance ID** (a number like `1035398`) |
 | **API Token** | **Access Policies** → Create token → scopes: `metrics:write`, `logs:write`, `traces:write` |
 
-### Grafana Cloud — dashboard auto-import (optional but recommended)
-
-Automatically imports 6 pre-built OTel Demo dashboards into your Grafana instance.
-
-| What | Where exactly |
-|---|---|
-| **Grafana URL** | grafana.com → your stack → **Launch Grafana** → copy the URL from your browser (e.g. `https://yourorg.grafana.net`) |
-| **Service Account Token** | In Grafana: **Administration → Service Accounts → Add service account** → set role **Editor** → **Add token** |
-
 ### Grafana Cloud — Kubernetes infrastructure monitoring (optional)
 
 Deploys Grafana Alloy to collect cluster/node/pod metrics. Skip this if you only want the OTel Demo app signals.
@@ -145,9 +136,11 @@ Once setup completes, open grafana.com → your stack → **Launch Grafana**.
 ### Logs
 **Drilldown → Logs** — all services ranked by log volume. Click any service → Show logs.
 
-### Dashboards (OTel Demo folder)
+### Dashboards
 
-If you enabled dashboard auto-import, these appear in an **OTel Demo** folder:
+Six pre-built dashboards are included in `manifests/dashboards/` in this repo. They are **not imported automatically** — import them manually when you're ready to explore them.
+
+**To import:** Grafana → Dashboards → New → Import → Upload JSON file
 
 | Dashboard | What it shows |
 |---|---|
@@ -157,6 +150,8 @@ If you enabled dashboard auto-import, these appear in an **OTel Demo** folder:
 | **exemplars-dashboard** | Metrics data points linked to specific traces via exemplars |
 | **postgresql-dashboard** | PostgreSQL metrics from the demo's database |
 | **opentelemetry-collector** | Collector internal health — spans received/exported, batch sizes, memory |
+
+When importing, Grafana will prompt you to map each datasource — select your Grafana Cloud Prometheus, Tempo, and Loki datasources.
 
 ---
 

@@ -46,7 +46,6 @@ from lib.provision import (
     setup_kubernetes,
     deploy_otel_demo,
     deploy_k8s_monitoring,
-    import_dashboards,
     validate,
     teardown_vm,
 )
@@ -67,9 +66,6 @@ _CONFIG_KEYS = [
     "GRAFANA_PROMETHEUS_USERNAME",
     "GRAFANA_LOKI_HOST",
     "GRAFANA_LOKI_USERNAME",
-    # Optional — only set if the user enables dashboard auto-import
-    "GRAFANA_URL",
-    "GRAFANA_SA_TOKEN",
 ]
 
 
@@ -141,13 +137,10 @@ def show_completion(config: dict):
     console.print("    Look for a [bold]TraceID[/bold] field — clicking it jumps to the matching trace.")
     console.print()
 
-    if config.get("GRAFANA_SA_TOKEN"):
-        console.print("  [bold]Dashboards[/bold]  Dashboards → OTel Demo folder")
-        console.print("    [dim]apm-dashboard[/dim]       → RED metrics per service (rate / errors / duration)")
-        console.print("    [dim]demo-dashboard[/dim]      → store-wide throughput and latency overview")
-        console.print("    [dim]spanmetrics-dashboard[/dim] → latency quantiles from trace data")
-        console.print("    [dim]exemplars-dashboard[/dim]   → click a metric spike → jump to the trace that caused it")
-        console.print()
+    console.print("  [bold]Dashboards[/bold]  Dashboards → Import → Upload JSON")
+    console.print("    Pre-built dashboards are in [dim]manifests/dashboards/[/dim] in the repo.")
+    console.print("    Import them manually to explore — or build your own as you learn.")
+    console.print()
 
     console.print("[bold]── View the OTel Demo store (optional) ────────────────[/bold]")
     console.print("  The demo is a live fake e-commerce store with always-on traffic.")
@@ -316,41 +309,6 @@ def prompt_config(existing: dict) -> dict:
                     "GRAFANA_LOKI_HOST", "GRAFANA_LOKI_USERNAME"):
             config[key] = ""
 
-    console.print()
-    console.rule("[bold]Dashboard Auto-Import (optional)[/bold]")
-    console.print()
-    console.print("  Automatically imports 6 OTel Demo dashboards into an [bold]OTel Demo[/bold] folder")
-    console.print("  in your Grafana Cloud instance.")
-    console.print()
-    console.print("  You'll need:")
-    console.print()
-    console.print("  [bold]Grafana URL[/bold]            →  grafana.com → your stack → Launch Grafana")
-    console.print("                           Copy the URL from your browser")
-    console.print("                           [dim]e.g. https://yourorg.grafana.net[/dim]")
-    console.print("  [bold]Service Account Token[/bold]  →  In Grafana: Administration → Service Accounts")
-    console.print("                           → Add service account → role: [bold]Editor[/bold] → Add token")
-    console.print()
-
-    enable_dashboards = Confirm.ask(
-        "  Enable dashboard auto-import?",
-        default=bool(config.get("GRAFANA_SA_TOKEN")),
-    )
-
-    if enable_dashboards:
-        console.print()
-        config["GRAFANA_URL"] = Prompt.ask(
-            "  Grafana URL",
-            default=config.get("GRAFANA_URL") or "",
-        )
-        config["GRAFANA_SA_TOKEN"] = Prompt.ask(
-            "  Service Account Token",
-            default=config.get("GRAFANA_SA_TOKEN") or "",
-            password=True,
-        )
-    else:
-        for key in ("GRAFANA_URL", "GRAFANA_SA_TOKEN"):
-            config[key] = ""
-
     return config
 
 
@@ -373,9 +331,6 @@ def run_setup(config: dict, skip_vm: bool):
 
     if config.get("GRAFANA_PROMETHEUS_HOST"):
         phases.append(("Deploying K8s Monitoring", lambda: deploy_k8s_monitoring(config, console)))
-
-    if config.get("GRAFANA_SA_TOKEN"):
-        phases.append(("Importing Dashboards", lambda: import_dashboards(config, console)))
 
     phases.append(("Validating", lambda: validate(config, console)))
 
