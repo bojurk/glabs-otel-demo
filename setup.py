@@ -52,9 +52,9 @@ from lib.provision import (
 console = Console()
 SCRIPT_DIR = Path(__file__).parent
 ENV_FILE    = SCRIPT_DIR / ".env"
-VM_NAME     = "otel-lab-vm"
 
 _CONFIG_KEYS = [
+    "VM_NAME",
     "GCP_PROJECT_ID",
     "GCP_ZONE",
     "GRAFANA_OTLP_ENDPOINT",
@@ -90,7 +90,7 @@ def show_summary(config: dict):
     table.add_column()
     table.add_row("GCP Project",    config["GCP_PROJECT_ID"])
     table.add_row("GCP Zone",       config["GCP_ZONE"])
-    table.add_row("VM Name",        VM_NAME + "  (e2-standard-4 · Ubuntu 22.04 · 50 GB SSD)")
+    table.add_row("VM Name",        config["VM_NAME"] + "  (e2-standard-4 · Ubuntu 22.04 · 50 GB SSD)")
     table.add_row("OTLP Endpoint",  config["GRAFANA_OTLP_ENDPOINT"])
     table.add_row("Instance ID",    config["GRAFANA_INSTANCE_ID"])
     table.add_row("API Token",      _mask(config["GRAFANA_API_TOKEN"]))
@@ -101,7 +101,7 @@ def show_summary(config: dict):
 def show_completion(config: dict):
     p  = config["GCP_PROJECT_ID"]
     z  = config["GCP_ZONE"]
-    vm = VM_NAME
+    vm = config["VM_NAME"]
 
     console.print()
     console.print("[bold green]✓  Setup complete![/bold green]")
@@ -155,9 +155,20 @@ def _detect_gcp_defaults() -> dict:
         except Exception:
             return ""
 
+    def _gcloud_account() -> str:
+        try:
+            r = subprocess.run(
+                ["gcloud", "auth", "list", "--filter=status:ACTIVE", "--format=value(account)"],
+                capture_output=True, text=True, timeout=5,
+            )
+            return r.stdout.strip().splitlines()[0] if r.returncode == 0 else ""
+        except Exception:
+            return ""
+
     return {
         "GCP_PROJECT_ID": _gcloud_value("project"),
         "GCP_ZONE":       _gcloud_value("compute/zone") or "us-central1-a",
+        "account":        _gcloud_account(),
     }
 
 
@@ -200,6 +211,17 @@ def prompt_config(existing: dict) -> dict:
         default=config.get("GCP_ZONE") or "us-central1-a",
     )
 
+    # Build a default VM name from the gcloud account (e.g. jsmith@grafana.com → otel-lab-jsmith)
+    _account = _detect_gcp_defaults().get("account", "")
+    _username = _account.split("@")[0] if "@" in _account else ""
+    _slug = "".join(c if c.isalnum() or c == "-" else "-" for c in _username.lower()).strip("-")
+    _vm_default = f"otel-lab-{_slug}" if _slug else "otel-lab-vm"
+
+    config["VM_NAME"] = Prompt.ask(
+        "  VM Name [dim](GCP instance name — must be unique per project)[/dim]",
+        default=config.get("VM_NAME") or _vm_default,
+    )
+
     console.print()
     console.rule("[bold]Grafana Cloud[/bold]")
     console.print("  [dim]Find IDs at: grafana.com → your stack → click each service tile → Details[/dim]")
@@ -221,7 +243,6 @@ def prompt_config(existing: dict) -> dict:
     )
 
 
-    config["VM_NAME"] = VM_NAME
     return config
 
 
@@ -283,9 +304,8 @@ def main():
         if not config.get("GCP_PROJECT_ID"):
             console.print("[red]No .env found — nothing to tear down.[/red]")
             sys.exit(0)
-        config["VM_NAME"] = VM_NAME
         confirmed = Confirm.ask(
-            f"Delete VM [bold]{VM_NAME}[/bold] in project "
+            f"Delete VM [bold]{config['VM_NAME']}[/bold] in project "
             f"[bold]{config['GCP_PROJECT_ID']}[/bold]?",
             default=False,
         )
