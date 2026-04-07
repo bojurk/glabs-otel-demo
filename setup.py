@@ -205,13 +205,12 @@ def prompt_config(existing: dict) -> dict:
         if not config.get(key) and val:
             config[key] = val
 
+    console.rule("[bold]GCP[/bold]")
     console.print()
-    console.print("[bold]Where to find Grafana Cloud IDs:[/bold]")
-    console.print("  grafana.com → your org → your stack → click each service tile → [italic]Details[/italic]")
-    console.print("  API token → [italic]Access Policies → Create → scopes: metrics/logs/traces:write[/italic]")
+    console.print("  [bold]Project ID[/bold]  →  [link=https://console.cloud.google.com]console.cloud.google.com[/link] — top bar dropdown")
+    console.print("  [bold]Zone[/bold]        →  leave blank to use [dim]us-central1-a[/dim]")
     console.print()
 
-    console.rule("[bold]GCP[/bold]")
     config["GCP_PROJECT_ID"] = Prompt.ask(
         "  Project ID",
         default=config.get("GCP_PROJECT_ID") or "",
@@ -228,14 +227,19 @@ def prompt_config(existing: dict) -> dict:
     _vm_default = f"otel-lab-{_slug}" if _slug else "otel-lab-vm"
 
     config["VM_NAME"] = Prompt.ask(
-        "  VM Name [dim](GCP instance name — must be unique per project)[/dim]",
+        "  VM Name [dim](must be unique within the GCP project)[/dim]",
         default=config.get("VM_NAME") or _vm_default,
     )
 
     console.print()
-    console.rule("[bold]Grafana Cloud[/bold]")
-    console.print("  [dim]Find IDs at: grafana.com → your stack → click each service tile → Details[/dim]")
-    console.print("  [dim]API token:   Access Policies → Create → scopes: metrics/logs/traces:write[/dim]")
+    console.rule("[bold]Grafana Cloud — Core[/bold]")
+    console.print()
+    console.print("  Open [bold]grafana.com → your org → your stack[/bold], then:")
+    console.print()
+    console.print("  [bold]OTLP Endpoint[/bold]   →  OpenTelemetry tile → Details → OTLP Endpoint URL")
+    console.print("  [bold]Instance ID[/bold]     →  Grafana tile → Details → Instance ID  [dim](a number)[/dim]")
+    console.print("  [bold]API Token[/bold]       →  Access Policies → Create token")
+    console.print("                    Scopes: [dim]metrics:write  logs:write  traces:write[/dim]")
     console.print()
 
     config["GRAFANA_OTLP_ENDPOINT"] = Prompt.ask(
@@ -243,20 +247,28 @@ def prompt_config(existing: dict) -> dict:
         default=config.get("GRAFANA_OTLP_ENDPOINT") or "https://otlp-gateway-prod-us-east-0.grafana.net/otlp",
     )
     config["GRAFANA_INSTANCE_ID"] = Prompt.ask(
-        "  Grafana Instance ID [dim](main stack page → Details)[/dim]",
+        "  Instance ID",
         default=config.get("GRAFANA_INSTANCE_ID") or "",
     )
     config["GRAFANA_API_TOKEN"] = Prompt.ask(
-        "  API Token [dim](starts with glc_)[/dim]",
+        "  API Token",
         default=config.get("GRAFANA_API_TOKEN") or "",
         password=True,
     )
 
     console.print()
     console.rule("[bold]Kubernetes Infrastructure Monitoring (optional)[/bold]")
+    console.print()
     console.print("  Deploys Grafana Alloy to scrape cluster, node, and pod metrics.")
-    console.print("  Requires Prometheus and Loki datasource details from your Grafana Cloud stack.")
-    console.print("  [dim]Find these at: grafana.com → your stack → click Prometheus or Loki tile → Details[/dim]")
+    console.print()
+    console.print("  If you enable this, you'll need from [bold]grafana.com → your stack[/bold]:")
+    console.print()
+    console.print("  [bold]Prometheus URL[/bold]       →  Prometheus tile → Details → Remote Write Endpoint")
+    console.print("                         [dim](paste the full URL — path is stripped automatically)[/dim]")
+    console.print("  [bold]Prometheus Username[/bold]  →  same Details page → Username  [dim](a number)[/dim]")
+    console.print("  [bold]Loki URL[/bold]             →  Loki tile → Details → URL")
+    console.print("                         [dim](paste the full URL — path is stripped automatically)[/dim]")
+    console.print("  [bold]Loki Username[/bold]        →  same Details page → Username  [dim](a number)[/dim]")
     console.print()
 
     enable_k8s_mon = Confirm.ask(
@@ -267,34 +279,39 @@ def prompt_config(existing: dict) -> dict:
     if enable_k8s_mon:
         console.print()
         config["GRAFANA_PROMETHEUS_HOST"] = Prompt.ask(
-            "  Prometheus URL [dim](paste the full Remote Write Endpoint from Details — path is stripped automatically)[/dim]",
+            "  Prometheus URL",
             default=config.get("GRAFANA_PROMETHEUS_HOST") or "",
         )
         config["GRAFANA_PROMETHEUS_USERNAME"] = Prompt.ask(
-            "  Prometheus Username [dim](numeric ID shown in Details)[/dim]",
+            "  Prometheus Username",
             default=config.get("GRAFANA_PROMETHEUS_USERNAME") or "",
         )
         config["GRAFANA_LOKI_HOST"] = Prompt.ask(
-            "  Loki URL [dim](paste the full URL from Details — path is stripped automatically)[/dim]",
+            "  Loki URL",
             default=config.get("GRAFANA_LOKI_HOST") or "",
         )
         config["GRAFANA_LOKI_USERNAME"] = Prompt.ask(
-            "  Loki Username [dim](numeric ID shown in Details)[/dim]",
+            "  Loki Username",
             default=config.get("GRAFANA_LOKI_USERNAME") or "",
         )
     else:
-        # Clear any previously saved values if the user opts out
         for key in ("GRAFANA_PROMETHEUS_HOST", "GRAFANA_PROMETHEUS_USERNAME",
                     "GRAFANA_LOKI_HOST", "GRAFANA_LOKI_USERNAME"):
             config[key] = ""
 
     console.print()
     console.rule("[bold]Dashboard Auto-Import (optional)[/bold]")
-    console.print("  Automatically imports OTel Demo dashboards into your Grafana Cloud instance.")
-    console.print("  Requires a Grafana service account token with [bold]Editor[/bold] role.")
     console.print()
-    console.print("  [dim]Create one at: Grafana → Administration → Service Accounts → Add service account[/dim]")
-    console.print("  [dim]Set role: Editor, then Add token[/dim]")
+    console.print("  Automatically imports 6 OTel Demo dashboards into an [bold]OTel Demo[/bold] folder")
+    console.print("  in your Grafana Cloud instance.")
+    console.print()
+    console.print("  You'll need:")
+    console.print()
+    console.print("  [bold]Grafana URL[/bold]            →  grafana.com → your stack → Launch Grafana")
+    console.print("                           Copy the URL from your browser")
+    console.print("                           [dim]e.g. https://yourorg.grafana.net[/dim]")
+    console.print("  [bold]Service Account Token[/bold]  →  In Grafana: Administration → Service Accounts")
+    console.print("                           → Add service account → role: [bold]Editor[/bold] → Add token")
     console.print()
 
     enable_dashboards = Confirm.ask(
@@ -303,12 +320,13 @@ def prompt_config(existing: dict) -> dict:
     )
 
     if enable_dashboards:
+        console.print()
         config["GRAFANA_URL"] = Prompt.ask(
-            "  Grafana URL [dim](e.g. https://yourorg.grafana.net)[/dim]",
+            "  Grafana URL",
             default=config.get("GRAFANA_URL") or "",
         )
         config["GRAFANA_SA_TOKEN"] = Prompt.ask(
-            "  Service Account Token [dim](glsa_... or glc_...)[/dim]",
+            "  Service Account Token",
             default=config.get("GRAFANA_SA_TOKEN") or "",
             password=True,
         )

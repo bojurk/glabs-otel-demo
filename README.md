@@ -25,7 +25,52 @@ No in-cluster Grafana, Jaeger, or Prometheus — Grafana Cloud is the backend.
 
 ---
 
-## Prerequisites
+## Before you start — gather everything first
+
+The wizard will ask for credentials interactively. Collect these **before** running it so you're not switching between windows mid-setup.
+
+### GCP (required)
+
+| What | Where |
+|---|---|
+| **Project ID** | [console.cloud.google.com](https://console.cloud.google.com) — top bar dropdown, looks like `my-project-123456` |
+| **gcloud authenticated** | Run `gcloud auth login` and `gcloud auth application-default login` |
+
+### Grafana Cloud — core (required)
+
+All found at **grafana.com → your org → your stack**:
+
+| What | Where exactly |
+|---|---|
+| **OTLP Endpoint** | Click the **OpenTelemetry** tile → Details → **OTLP Endpoint** |
+| **Instance ID** | Click the **Grafana** tile → Details → **Instance ID** (a number like `1035398`) |
+| **API Token** | **Access Policies** → Create token → scopes: `metrics:write`, `logs:write`, `traces:write` |
+
+### Grafana Cloud — dashboard auto-import (optional but recommended)
+
+Automatically imports 6 pre-built OTel Demo dashboards into your Grafana instance.
+
+| What | Where exactly |
+|---|---|
+| **Grafana URL** | grafana.com → your stack → **Launch Grafana** → copy the URL from your browser (e.g. `https://yourorg.grafana.net`) |
+| **Service Account Token** | In Grafana: **Administration → Service Accounts → Add service account** → set role **Editor** → **Add token** |
+
+### Grafana Cloud — Kubernetes infrastructure monitoring (optional)
+
+Deploys Grafana Alloy to collect cluster/node/pod metrics. Skip this if you only want the OTel Demo app signals.
+
+All found at **grafana.com → your org → your stack**:
+
+| What | Where exactly |
+|---|---|
+| **Prometheus URL** | Click the **Prometheus** tile → Details → **Remote Write Endpoint** (paste the full URL — path is stripped automatically) |
+| **Prometheus Username** | Same Details page → **Username** (a number) |
+| **Loki URL** | Click the **Loki** tile → Details → **URL** (paste the full URL — path is stripped automatically) |
+| **Loki Username** | Same Details page → **Username** (a number) |
+
+---
+
+## Setup
 
 ### 1 — Install gcloud
 
@@ -33,103 +78,45 @@ No in-cluster Grafana, Jaeger, or Prometheus — Grafana Cloud is the backend.
 brew install google-cloud-sdk
 ```
 
-No Homebrew?  Install it first:
+No Homebrew? Install it first:
 ```bash
 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
 ```
 
-### 2 — Authenticate with Google Cloud
+### 2 — Authenticate and set your project
 
 ```bash
 gcloud auth login
 gcloud auth application-default login
-```
-
-Both open a browser window — sign in and click Allow.
-
-### 3 — Set your GCP project
-
-```bash
 gcloud config set project YOUR_PROJECT_ID
 ```
 
-Your Project ID is in the top bar of [console.cloud.google.com](https://console.cloud.google.com) — it looks like `my-project-123456`.
-
-Don't have a project? Create one at console.cloud.google.com → New Project. Make sure billing is enabled.
-
-### 4 — Gather your Grafana Cloud credentials
-
-You need a free Grafana Cloud account at [grafana.com](https://grafana.com).
-
-Go to **grafana.com → your org → your stack**. The wizard will ask for:
-
-#### Required
-
-| Credential | Where to find it |
-|---|---|
-| **OTLP Endpoint** | Click the **OpenTelemetry** tile → Details → OTLP Endpoint URL |
-| **Grafana Instance ID** | Click the **Grafana** tile → Details → Instance ID (a number) |
-| **API Token** | Access Policies → Create token — set scopes: `metrics:write`, `logs:write`, `traces:write` |
-
-#### Optional — Dashboard auto-import
-
-| Credential | Where to find it |
-|---|---|
-| **Grafana URL** | grafana.com → your stack → Launch Grafana → copy the URL (e.g. `https://yourorg.grafana.net`) |
-| **Service Account Token** | Grafana → Administration → Service Accounts → Add service account (role: **Editor**) → Add token |
-
-The wizard creates an **OTel Demo** folder in your Grafana instance and imports all six dashboards automatically.
-
-#### Optional — Kubernetes infrastructure monitoring
-
-Enabling this deploys Grafana Alloy alongside the demo to scrape cluster/node/pod metrics.
-If you skip it, the OTel Demo still sends all traces, metrics, and logs — you just won't have Kubernetes host-level dashboards.
-
-| Credential | Where to find it |
-|---|---|
-| **Prometheus Host** | Click the **Prometheus** tile → Details → Remote Write Endpoint — copy only the host (e.g. `https://prometheus-prod-13-prod-us-east-0.grafana.net`) |
-| **Prometheus Username** | Same Details page → Username (a number) |
-| **Loki Host** | Click the **Loki** tile → Details → URL — copy only the host (e.g. `https://logs-prod-us-east-0.grafana.net`) |
-| **Loki Username** | Same Details page → Username (a number) |
-
----
-
-## Run the wizard
+### 3 — Run the wizard
 
 ```bash
-git clone https://github.com/YOUR_ORG/otel-lab
-cd otel-lab
+git clone https://github.com/bojurk/glabs-otel-demo
+cd glabs-otel-demo
 ./run.sh
 ```
 
-The wizard will:
-1. Detect your GCP project from `gcloud config`
-2. Ask for your Grafana Cloud credentials
-3. Create the VM, install Kubernetes, deploy everything
-4. Print instructions for viewing the demo
-
-**Total time: ~15 minutes** (mostly image pulls on first run).
+The wizard detects your GCP project automatically, prompts for credentials (with inline hints showing exactly where to find each value), then builds everything. **Total time: ~15 minutes.**
 
 ---
 
 ## Viewing your data in Grafana Cloud
 
-Once setup completes, open Grafana Cloud → your stack → Launch Grafana.
+Once setup completes, open grafana.com → your stack → **Launch Grafana**.
 
 ### Traces
-**Drilldown → Traces**
-Shows rate, error rate, and duration for every demo microservice.
-No query needed — data appears automatically.
+**Drilldown → Traces** — rate, error rate, and duration for every demo microservice. No query needed.
 
 ### Metrics
-**Drilldown → Metrics**
-Browse all metrics. Search `http_server` for OTel Demo request metrics, or `otelcol_` for collector self-monitoring.
+**Drilldown → Metrics** — browse all metrics. Search `http_server` for OTel Demo request metrics, or `otelcol_` for collector self-monitoring.
 
 ### Logs
-**Drilldown → Logs**
-All services ranked by log volume. Click any service → Show logs for live lines.
+**Drilldown → Logs** — all services ranked by log volume. Click any service → Show logs.
 
-### Imported dashboards (OTel Demo folder)
+### Dashboards (OTel Demo folder)
 
 If you enabled dashboard auto-import, these appear in an **OTel Demo** folder:
 
@@ -145,8 +132,6 @@ If you enabled dashboard auto-import, these appear in an **OTel Demo** folder:
 ---
 
 ## Browse the demo store (optional)
-
-The demo app is a fully functional fake e-commerce store. To open it locally:
 
 ```bash
 gcloud compute ssh YOUR_VM_NAME \
@@ -165,21 +150,8 @@ Then open [http://localhost:8080](http://localhost:8080).
 | Command | What it does |
 |---|---|
 | `./run.sh` | Full setup — creates VM, installs everything |
-| `./run.sh --skip-vm` | Re-run setup steps on an existing VM (use after config changes) |
+| `./run.sh --skip-vm` | Re-run setup on an existing VM (use after config changes or to enable optional features) |
 | `./teardown.sh` | Delete the VM and stop all charges |
-
----
-
-## Updating credentials or enabling k8s monitoring later
-
-If you skipped Kubernetes monitoring and want to enable it later, or if your API token changes:
-
-```bash
-./run.sh --skip-vm
-```
-
-This re-runs all install steps against your existing VM without recreating it.
-The wizard will prompt for credentials again — previous values are pre-filled.
 
 ---
 
@@ -187,23 +159,21 @@ The wizard will prompt for credentials again — previous values are pre-filled.
 
 **No data in Grafana Cloud after 5 minutes**
 
-Check the collector logs on the VM:
 ```bash
 gcloud compute ssh YOUR_VM_NAME --zone YOUR_ZONE -- \
   kubectl logs -n otel-demo -l app.kubernetes.io/component=otelcol --tail=50
 ```
 
-Look for `401 Unauthorized` → wrong `GRAFANA_INSTANCE_ID` or `GRAFANA_API_TOKEN`.
-Look for `connection refused` → wrong `GRAFANA_OTLP_ENDPOINT` region.
+- `401 Unauthorized` → wrong Instance ID or API Token
+- `connection refused` / `404` → wrong OTLP Endpoint region
 
 **Pods not starting**
 
 ```bash
-gcloud compute ssh YOUR_VM_NAME --zone YOUR_ZONE -- \
-  kubectl get pods -n otel-demo
+gcloud compute ssh YOUR_VM_NAME --zone YOUR_ZONE -- kubectl get pods -n otel-demo
 ```
 
-`ImagePullBackOff` is normal on first deploy — images are large. Wait a few minutes and check again.
+`ImagePullBackOff` is normal on first deploy — images are large (~1 GB total). Wait a few minutes.
 
 **Re-run after a failure**
 
