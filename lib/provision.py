@@ -299,11 +299,18 @@ def deploy_k8s_monitoring(config: dict, console: Console):
 
     template = (_MANIFESTS_DIR / "k8s-monitoring-values.yaml").read_text()
 
+    # Strip any path from the host values — Grafana Cloud shows the full
+    # remote_write URL (e.g. .../api/prom/push) but the chart only wants the host.
+    from urllib.parse import urlparse
+    def _host_only(url: str) -> str:
+        p = urlparse(url)
+        return f"{p.scheme}://{p.netloc}" if p.netloc else url
+
     rendered = template
     for placeholder, value in {
-        "${GRAFANA_PROMETHEUS_HOST}":     config["GRAFANA_PROMETHEUS_HOST"],
+        "${GRAFANA_PROMETHEUS_HOST}":     _host_only(config["GRAFANA_PROMETHEUS_HOST"]),
         "${GRAFANA_PROMETHEUS_USERNAME}": config["GRAFANA_PROMETHEUS_USERNAME"],
-        "${GRAFANA_LOKI_HOST}":           config["GRAFANA_LOKI_HOST"],
+        "${GRAFANA_LOKI_HOST}":           _host_only(config["GRAFANA_LOKI_HOST"]),
         "${GRAFANA_LOKI_USERNAME}":       config["GRAFANA_LOKI_USERNAME"],
         "${GRAFANA_API_TOKEN}":           config["GRAFANA_API_TOKEN"],
     }.items():

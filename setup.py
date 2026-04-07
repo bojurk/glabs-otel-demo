@@ -267,7 +267,7 @@ def prompt_config(existing: dict) -> dict:
     if enable_k8s_mon:
         console.print()
         config["GRAFANA_PROMETHEUS_HOST"] = Prompt.ask(
-            "  Prometheus Host [dim](e.g. https://prometheus-prod-13-prod-us-east-0.grafana.net)[/dim]",
+            "  Prometheus URL [dim](paste the full Remote Write Endpoint from Details — path is stripped automatically)[/dim]",
             default=config.get("GRAFANA_PROMETHEUS_HOST") or "",
         )
         config["GRAFANA_PROMETHEUS_USERNAME"] = Prompt.ask(
@@ -275,7 +275,7 @@ def prompt_config(existing: dict) -> dict:
             default=config.get("GRAFANA_PROMETHEUS_USERNAME") or "",
         )
         config["GRAFANA_LOKI_HOST"] = Prompt.ask(
-            "  Loki Host [dim](e.g. https://logs-prod-us-east-0.grafana.net)[/dim]",
+            "  Loki URL [dim](paste the full URL from Details — path is stripped automatically)[/dim]",
             default=config.get("GRAFANA_LOKI_HOST") or "",
         )
         config["GRAFANA_LOKI_USERNAME"] = Prompt.ask(
