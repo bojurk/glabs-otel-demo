@@ -78,7 +78,7 @@ opentelemetry-collector:
                 exporter:
                   otlp:
                     protocol: http/protobuf
-                    endpoint: "${env:GRAFANA_CLOUD_OTLP_ENDPOINT}/v1/metrics"
+                    endpoint: "${env:GRAFANA_CLOUD_OTLP_ENDPOINT}/otlp/v1/metrics"
                     headers:
                       authorization: "${env:GRAFANA_CLOUD_BASIC_AUTH_HEADER}"
         logs:
@@ -87,7 +87,7 @@ opentelemetry-collector:
                 exporter:
                   otlp:
                     protocol: http/protobuf
-                    endpoint: "${env:GRAFANA_CLOUD_OTLP_ENDPOINT}/v1/logs"
+                    endpoint: "${env:GRAFANA_CLOUD_OTLP_ENDPOINT}/otlp/v1/logs"
                     headers:
                       authorization: "${env:GRAFANA_CLOUD_BASIC_AUTH_HEADER}"
       pipelines:
