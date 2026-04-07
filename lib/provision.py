@@ -328,6 +328,7 @@ def deploy_k8s_monitoring(config: dict, console: Console):
         _scp(config, local_tmp, remote_values)
         _remote(config, (
             f"helm upgrade --install k8s-monitoring grafana/k8s-monitoring "
+            f"--version '^1' "
             f"--namespace monitoring --create-namespace "
             f"--values {remote_values} "
             f"--timeout 10m --wait"
