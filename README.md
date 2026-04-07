@@ -25,6 +25,35 @@ No in-cluster Grafana, Jaeger, or Prometheus — Grafana Cloud is the backend.
 
 ---
 
+## System requirements
+
+| Requirement | Version | Notes |
+|---|---|---|
+| **OS** | macOS or Linux | Windows: use [WSL2](https://learn.microsoft.com/en-us/windows/wsl/install) |
+| **Python** | 3.8+ | Check with `python3 --version` |
+| **gcloud CLI** | any recent | See install instructions below |
+| **Python packages** | — | Installed automatically by `run.sh` into a local venv |
+
+Everything else (kubectl, Helm, K3s) runs on the GCP VM — nothing to install locally beyond the three items above.
+
+### Install gcloud
+
+**macOS**
+```bash
+brew install google-cloud-sdk
+```
+
+**Linux**
+```bash
+curl -fsSL https://sdk.cloud.google.com | bash
+exec -l $SHELL
+```
+
+**Windows (WSL2)**
+Follow the Linux instructions above inside your WSL2 terminal.
+
+---
+
 ## Before you start — gather everything first
 
 The wizard will ask for credentials interactively. Collect these **before** running it so you're not switching between windows mid-setup.

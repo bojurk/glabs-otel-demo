@@ -113,20 +113,41 @@ def _run_script(config: dict, script: str, env_vars: Optional[dict] = None):
 # ── Phase: preflight ──────────────────────────────────────────────────────────
 
 def check_preflight(console: Console):
-    """Verify gcloud is installed and authenticated."""
+    """Verify system requirements are met before starting."""
+    import platform
+    import sys
+
+    # ── Python version ────────────────────────────────────────────────────────
+    major, minor = sys.version_info[:2]
+    if (major, minor) < (3, 8):
+        console.print(f"  [red]✗ Python 3.8+ required (found {major}.{minor})[/red]")
+        console.print("  Download: https://www.python.org/downloads/")
+        raise SystemExit(1)
+    console.print(f"  [green]✓[/green] Python {major}.{minor}")
+
+    # ── gcloud ────────────────────────────────────────────────────────────────
     if not shutil.which("gcloud"):
-        console.print("  [red]✗ gcloud not found.[/red]")
-        console.print("  Install: https://cloud.google.com/sdk/docs/install")
+        console.print("  [red]✗ gcloud CLI not found.[/red]")
+        system = platform.system()
+        if system == "Darwin":
+            console.print("  Install:  [bold]brew install google-cloud-sdk[/bold]")
+        elif system == "Linux":
+            console.print("  Install:  [bold]curl -fsSL https://sdk.cloud.google.com | bash[/bold]")
+        else:
+            console.print("  Install:  https://cloud.google.com/sdk/docs/install")
         raise SystemExit(1)
     console.print("  [green]✓[/green] gcloud")
 
+    # ── gcloud auth ───────────────────────────────────────────────────────────
     result = _local(
         ["gcloud", "auth", "list", "--filter=status:ACTIVE", "--format=value(account)"],
         check=False,
     )
     account = result.stdout.strip()
     if not account:
-        console.print("  [red]✗ gcloud not authenticated.[/red]  Run: [bold]gcloud auth login[/bold]")
+        console.print("  [red]✗ gcloud not authenticated.[/red]")
+        console.print("  Run: [bold]gcloud auth login[/bold]")
+        console.print("  Then: [bold]gcloud auth application-default login[/bold]")
         raise SystemExit(1)
     console.print(f"  [green]✓[/green] gcloud — authenticated as [bold]{account}[/bold]")
 
