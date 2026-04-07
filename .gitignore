@@ -1,0 +1,13 @@
+# Secrets — never commit
+.env
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+
+# Rendered values (contain credentials)
+*.rendered.yaml
+manifests/*-rendered.yaml

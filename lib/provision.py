@@ -1,0 +1,383 @@
+"""
+provision.py — all remote provisioning logic for the OTel Lab wizard.
+
+Each public function maps to one wizard phase.  Functions communicate with
+the GCP VM exclusively via `gcloud compute ssh` and `gcloud compute scp` so
+the SE's machine needs only gcloud installed — no direct SSH key management.
+"""
+
+import os
+import shlex
+import shutil
+import subprocess
+import tempfile
+import textwrap
+import time
+from pathlib import Path
+from typing import Optional
+
+from rich.console import Console
+
+# ── Paths ─────────────────────────────────────────────────────────────────────
+_REPO_ROOT     = Path(__file__).parent.parent
+_MANIFESTS_DIR = _REPO_ROOT / "manifests"
+
+# ── GCP VM defaults ───────────────────────────────────────────────────────────
+_MACHINE_TYPE   = "e2-standard-4"   # 4 vCPU / 16 GB — enough for 20+ microservices
+_IMAGE_FAMILY   = "ubuntu-2204-lts"
+_IMAGE_PROJECT  = "ubuntu-os-cloud"
+_DISK_SIZE      = "50GB"
+_VM_TAG         = "otel-lab"
+_FW_RULE        = "otel-lab-allow-ssh"
+
+
+# ── Low-level helpers ─────────────────────────────────────────────────────────
+
+def _local(cmd: list, check=True, capture=True) -> subprocess.CompletedProcess:
+    """Run a command on the local machine."""
+    return subprocess.run(cmd, check=check, capture_output=capture, text=True)
+
+
+def _remote(config: dict, command: str, env_vars: Optional[dict] = None,
+            check=True) -> subprocess.CompletedProcess:
+    """
+    Execute a shell command on the GCP VM via gcloud compute ssh.
+
+    Credentials are injected by prepending `export KEY=VALUE;` to the command.
+    This is visible in the SSH session's process list — acceptable for an
+    ephemeral, single-user demo VM, but not for production workloads.
+    """
+    if env_vars:
+        prefix = " ".join(
+            f"export {k}={shlex.quote(str(v))};"
+            for k, v in env_vars.items()
+        )
+        command = f"{prefix} {command}"
+
+    return subprocess.run(
+        [
+            "gcloud", "compute", "ssh", config["VM_NAME"],
+            "--project", config["GCP_PROJECT_ID"],
+            "--zone",    config["GCP_ZONE"],
+            "--quiet",
+            "--command", command,
+        ],
+        check=check,
+        capture_output=True,
+        text=True,
+    )
+
+
+def _scp(config: dict, local_path: str, remote_path: str):
+    """Copy a local file to the GCP VM."""
+    _local([
+        "gcloud", "compute", "scp", local_path,
+        f"{config['VM_NAME']}:{remote_path}",
+        "--project", config["GCP_PROJECT_ID"],
+        "--zone",    config["GCP_ZONE"],
+        "--quiet",
+    ])
+
+
+def _run_script(config: dict, script: str, env_vars: Optional[dict] = None):
+    """
+    Write a bash script to a local temp file, SCP it to the VM,
+    execute it, then delete it from both locations.
+    """
+    with tempfile.NamedTemporaryFile(
+        mode="w", suffix=".sh", prefix="otellab_", delete=False
+    ) as f:
+        f.write(script)
+        local_path = f.name
+
+    remote_path = f"/tmp/{Path(local_path).name}"
+    try:
+        _scp(config, local_path, remote_path)
+        _remote(
+            config,
+            f"chmod +x {remote_path} && bash {remote_path}",
+            env_vars=env_vars,
+        )
+    finally:
+        os.unlink(local_path)
+        _remote(config, f"rm -f {remote_path}", check=False)
+
+
+# ── Phase: preflight ──────────────────────────────────────────────────────────
+
+def check_preflight(console: Console):
+    """Verify gcloud is installed and authenticated."""
+    if not shutil.which("gcloud"):
+        console.print("  [red]✗ gcloud not found.[/red]")
+        console.print("  Install: https://cloud.google.com/sdk/docs/install")
+        raise SystemExit(1)
+    console.print("  [green]✓[/green] gcloud")
+
+    result = _local(
+        ["gcloud", "auth", "list", "--filter=status:ACTIVE", "--format=value(account)"],
+        check=False,
+    )
+    account = result.stdout.strip()
+    if not account:
+        console.print("  [red]✗ gcloud not authenticated.[/red]  Run: [bold]gcloud auth login[/bold]")
+        raise SystemExit(1)
+    console.print(f"  [green]✓[/green] gcloud — authenticated as [bold]{account}[/bold]")
+
+
+# ── Phase: create VM ──────────────────────────────────────────────────────────
+
+def create_vm(config: dict, console: Console):
+    """Create a GCP Compute Engine VM and an SSH firewall rule."""
+    project = config["GCP_PROJECT_ID"]
+    zone    = config["GCP_ZONE"]
+    vm      = config["VM_NAME"]
+
+    console.print(f"  [dim]Enabling Compute API...[/dim]")
+    _local(["gcloud", "services", "enable", "compute.googleapis.com",
+            "--project", project])
+
+    # Firewall rule — idempotent (ignore error if already exists)
+    _local([
+        "gcloud", "compute", "firewall-rules", "create", _FW_RULE,
+        "--project",    project,
+        "--allow",      "tcp:22",
+        "--target-tags", _VM_TAG,
+        "--description", "OTel Lab: allow SSH",
+        "--quiet",
+    ], check=False)
+
+    console.print(f"  [dim]Creating VM {vm} ({_MACHINE_TYPE}) in {zone}...[/dim]")
+    _local([
+        "gcloud", "compute", "instances", "create", vm,
+        "--project",         project,
+        "--zone",            zone,
+        "--machine-type",    _MACHINE_TYPE,
+        "--image-family",    _IMAGE_FAMILY,
+        "--image-project",   _IMAGE_PROJECT,
+        "--boot-disk-size",  _DISK_SIZE,
+        "--boot-disk-type",  "pd-ssd",
+        "--tags",            _VM_TAG,
+        "--quiet",
+    ])
+    console.print(f"  [dim]VM created.[/dim]")
+
+
+# ── Phase: wait for SSH ───────────────────────────────────────────────────────
+
+def wait_for_ssh(config: dict, console: Console, timeout_sec: int = 180):
+    """Poll until SSH is available on the newly created VM."""
+    console.print("  [dim]Polling for SSH access (may take ~30s on first boot)...[/dim]")
+    deadline = time.time() + timeout_sec
+    while time.time() < deadline:
+        result = _remote(config, "echo ready", check=False)
+        if result.returncode == 0 and "ready" in result.stdout:
+            console.print("  [dim]SSH is up.[/dim]")
+            return
+        time.sleep(8)
+    raise RuntimeError(f"SSH not available after {timeout_sec}s — check VM status in GCP Console")
+
+
+# ── Phase: K3s + Helm ─────────────────────────────────────────────────────────
+
+def install_k3s_and_tools(config: dict, console: Console):
+    """
+    Install K3s (lightweight Kubernetes), copy kubeconfig, install Helm,
+    and add the required Helm repositories — all on the remote VM.
+    """
+    console.print("  [dim]This takes ~2 minutes on a fresh VM...[/dim]")
+
+    script = textwrap.dedent("""\
+        #!/bin/bash
+        set -euo pipefail
+
+        echo "==> Installing K3s..."
+        # --disable=traefik: we don't need the built-in ingress controller
+        # --write-kubeconfig-mode=644: lets non-root users read the config
+        curl -sfL https://get.k3s.io | \\
+          sudo INSTALL_K3S_EXEC="--disable=traefik --write-kubeconfig-mode=644" sh -
+
+        echo "==> Waiting for node to be Ready..."
+        timeout 120 bash -c \\
+          'until sudo kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml get nodes 2>/dev/null \\
+             | grep -q " Ready"; do sleep 4; done'
+
+        echo "==> Copying kubeconfig for current user..."
+        mkdir -p ~/.kube
+        sudo cp /etc/rancher/k3s/k3s.yaml ~/.kube/config
+        sudo chown "$(id -u):$(id -g)" ~/.kube/config
+
+        echo "==> Installing Helm..."
+        curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 \\
+          | sudo bash
+
+        echo "==> Adding Helm repositories..."
+        helm repo add open-telemetry https://open-telemetry.github.io/opentelemetry-helm-charts
+        helm repo add grafana         https://grafana.github.io/helm-charts
+        helm repo update
+
+        echo "==> K3s $(kubectl version --short 2>/dev/null | head -1) ready."
+        echo "==> Helm $(helm version --short) ready."
+    """)
+
+    _run_script(config, script)
+
+
+# ── Phase: Kubernetes namespaces + secrets ────────────────────────────────────
+
+def setup_kubernetes(config: dict, console: Console):
+    """Create namespaces and inject Grafana Cloud credentials as K8s Secrets."""
+
+    # NOTE: This is a plain string (not an f-string).
+    # The $VARIABLE references are bash variables set by the env_vars dict below.
+    script = textwrap.dedent("""\
+        #!/bin/bash
+        set -euo pipefail
+
+        echo "==> Creating namespace..."
+        kubectl create namespace otel-demo --dry-run=client -o yaml | kubectl apply -f -
+
+        echo "==> Creating secret: grafana-credentials (otel-demo)..."
+        kubectl create secret generic grafana-credentials \\
+          --namespace=otel-demo \\
+          --from-literal=GRAFANA_INSTANCE_ID="$GRAFANA_INSTANCE_ID" \\
+          --from-literal=GRAFANA_API_TOKEN="$GRAFANA_API_TOKEN" \\
+          --dry-run=client -o yaml | kubectl apply -f -
+
+        echo "==> Secrets created."
+    """)
+
+    _run_script(config, script, env_vars={
+        "GRAFANA_INSTANCE_ID": config["GRAFANA_INSTANCE_ID"],
+        "GRAFANA_API_TOKEN":   config["GRAFANA_API_TOKEN"],
+    })
+
+
+# ── Phase: OTel Demo ──────────────────────────────────────────────────────────
+
+def deploy_otel_demo(config: dict, console: Console):
+    """
+    Upload the Helm values file and install the OpenTelemetry Demo.
+    The values file references the K8s Secret for credentials — no secrets
+    are written to the values file itself.
+    """
+    console.print("  [dim]Uploading values and running helm install (~5 min for image pulls)...[/dim]")
+
+    values_src    = str(_MANIFESTS_DIR / "otel-demo-values.yaml")
+    remote_values = "/tmp/otel-demo-values.yaml"
+
+    _scp(config, values_src, remote_values)
+    _remote(config, (
+        f"helm upgrade --install otel-demo open-telemetry/opentelemetry-demo "
+        f"--namespace otel-demo "
+        f"--values {remote_values} "
+        f"--timeout 12m --wait"
+    ))
+    _remote(config, f"rm -f {remote_values}", check=False)
+
+
+# ── Phase: Kubernetes Monitoring ──────────────────────────────────────────────
+
+def deploy_k8s_monitoring(config: dict, console: Console):
+    """
+    Render the k8s-monitoring values template with real credentials,
+    upload to the VM, run helm install, then immediately delete the
+    rendered file from both local disk and the VM.
+    """
+    console.print("  [dim]Rendering values template and running helm install...[/dim]")
+
+    template = (_MANIFESTS_DIR / "k8s-monitoring-values.yaml").read_text()
+
+    rendered = template
+    for placeholder, value in {
+        "${GRAFANA_PROMETHEUS_HOST}":     config["_GRAFANA_PROMETHEUS_HOST"],
+        "${GRAFANA_PROMETHEUS_USERNAME}": config["GRAFANA_PROMETHEUS_USERNAME"],
+        "${GRAFANA_LOKI_HOST}":           config["_GRAFANA_LOKI_HOST"],
+        "${GRAFANA_LOKI_USERNAME}":       config["GRAFANA_LOKI_USERNAME"],
+        "${GRAFANA_API_TOKEN}":           config["GRAFANA_API_TOKEN"],
+    }.items():
+        rendered = rendered.replace(placeholder, value)
+
+    remote_values = "/tmp/k8s-monitoring-values.yaml"
+
+    with tempfile.NamedTemporaryFile(
+        mode="w", suffix=".yaml", prefix="k8smon_", delete=False
+    ) as tmp:
+        tmp.write(rendered)
+        local_tmp = tmp.name
+
+    try:
+        _scp(config, local_tmp, remote_values)
+        _remote(config, (
+            f"helm upgrade --install k8s-monitoring grafana/k8s-monitoring "
+            f"--namespace monitoring "
+            f"--values {remote_values} "
+            f"--timeout 10m --wait"
+        ))
+    finally:
+        os.unlink(local_tmp)                                    # delete from local disk
+        _remote(config, f"rm -f {remote_values}", check=False) # delete from VM
+
+
+# ── Phase: validate ───────────────────────────────────────────────────────────
+
+def validate(config: dict, console: Console):
+    """Post-install sanity checks — pod counts and collector log scan."""
+
+    for ns, label in [("otel-demo", "OTel Demo"), ("monitoring", "K8s Monitoring")]:
+        r = _remote(
+            config,
+            f"kubectl get pods -n {ns} --no-headers "
+            f"| grep -v -E 'Running|Completed' | wc -l",
+            check=False,
+        )
+        not_ready = r.stdout.strip() if r.returncode == 0 else "?"
+        if not_ready == "0":
+            console.print(f"  [green]✓[/green] {label}: all pods Running")
+        else:
+            console.print(
+                f"  [yellow]⚠[/yellow]  {label}: {not_ready} pod(s) not yet Running "
+                f"(images may still be pulling — this is normal)"
+            )
+
+    # Scan collector logs for auth errors
+    r = _remote(
+        config,
+        "kubectl logs -n otel-demo -l app.kubernetes.io/component=otelcol "
+        "--tail=30 2>/dev/null || true",
+        check=False,
+    )
+    logs = r.stdout.lower()
+    if "401" in logs or "unauthorized" in logs:
+        console.print(
+            "  [yellow]⚠[/yellow]  Collector log shows auth errors — "
+            "double-check GRAFANA_INSTANCE_ID and GRAFANA_API_TOKEN"
+        )
+    elif "error" in logs:
+        console.print(
+            "  [yellow]⚠[/yellow]  Collector log contains errors — run:\n"
+            f"    gcloud compute ssh {config['VM_NAME']} "
+            f"--zone {config['GCP_ZONE']} -- "
+            "kubectl logs -n otel-demo -l app.kubernetes.io/component=otelcol --tail=50"
+        )
+    else:
+        console.print("  [green]✓[/green] Collector logs look clean")
+
+
+# ── Phase: teardown ───────────────────────────────────────────────────────────
+
+def teardown_vm(config: dict, console: Console):
+    """Delete the GCP VM and the SSH firewall rule."""
+    console.print(f"  Deleting VM [bold]{config['VM_NAME']}[/bold]...")
+    _local([
+        "gcloud", "compute", "instances", "delete", config["VM_NAME"],
+        "--project", config["GCP_PROJECT_ID"],
+        "--zone",    config["GCP_ZONE"],
+        "--quiet",
+    ])
+    console.print("  [dim]Deleting firewall rule...[/dim]")
+    _local([
+        "gcloud", "compute", "firewall-rules", "delete", _FW_RULE,
+        "--project", config["GCP_PROJECT_ID"],
+        "--quiet",
+    ], check=False)
+    console.print("  [green]✓[/green] Torn down.")

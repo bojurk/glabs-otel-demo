@@ -1,0 +1,86 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# OpenTelemetry Demo — Helm values
+# Chart: open-telemetry/opentelemetry-demo
+#
+# Key decisions:
+#   - In-cluster Jaeger and Grafana are disabled (Grafana Cloud replaces them)
+#   - The built-in load generator stays on so there's always live traffic
+#   - The OTel Collector is reconfigured to export to Grafana Cloud via OTLP
+#   - Credentials come from the K8s Secret "grafana-credentials" — never
+#     written into this file
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ── Disable in-cluster backends ───────────────────────────────────────────────
+jaeger:
+  enabled: false
+
+grafana:
+  enabled: false
+
+prometheus:
+  server:
+    enabled: false
+
+# ── OTel Collector configuration ─────────────────────────────────────────────
+# The collector is the single exit point for all telemetry.
+# Every demo microservice sends OTLP to it; it forwards to Grafana Cloud.
+opentelemetry-collector:
+
+  # Pull Grafana credentials from the K8s Secret created by the wizard
+  extraEnvsFrom:
+    - secretRef:
+        name: grafana-credentials
+
+  config:
+    extensions:
+      health_check:
+        endpoint: 0.0.0.0:13133
+      basicauth/grafana:
+        client_auth:
+          username: "${env:GRAFANA_INSTANCE_ID}"
+          password: "${env:GRAFANA_API_TOKEN}"
+
+    receivers:
+      otlp:
+        protocols:
+          grpc:
+            endpoint: 0.0.0.0:4317
+          http:
+            endpoint: 0.0.0.0:4318
+
+    processors:
+      memory_limiter:
+        check_interval: 1s
+        limit_mib: 512
+        spike_limit_mib: 128
+      batch:
+        timeout: 5s
+        send_batch_size: 1000
+
+    exporters:
+      otlphttp/grafana:
+        endpoint: "https://otlp-gateway-prod-us-east-0.grafana.net/otlp"
+        auth:
+          authenticator: basicauth/grafana
+        retry_on_failure:
+          enabled: true
+          initial_interval: 5s
+          max_interval: 30s
+      debug:
+        verbosity: basic
+
+    service:
+      extensions: [health_check, basicauth/grafana]
+      pipelines:
+        traces:
+          receivers:  [otlp]
+          processors: [memory_limiter, batch]
+          exporters:  [otlphttp/grafana, debug]
+        metrics:
+          receivers:  [otlp]
+          processors: [memory_limiter, batch]
+          exporters:  [otlphttp/grafana, debug]
+        logs:
+          receivers:  [otlp]
+          processors: [memory_limiter, batch]
+          exporters:  [otlphttp/grafana, debug]

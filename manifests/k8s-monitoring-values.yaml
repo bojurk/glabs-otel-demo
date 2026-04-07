@@ -1,0 +1,53 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Grafana Kubernetes Monitoring — Helm values template
+# Chart: grafana/k8s-monitoring
+#
+# Uses externalServices (the chart's stable, well-documented format).
+# Prometheus and Loki hosts are derived automatically from the OTLP endpoint
+# region — the wizard fills in all ${...} placeholders at install time.
+#
+# Do NOT run helm install against this file directly — use run.sh / setup.py.
+# ─────────────────────────────────────────────────────────────────────────────
+
+cluster:
+  name: "otel-lab"
+
+externalServices:
+  prometheus:
+    host: "${GRAFANA_PROMETHEUS_HOST}"
+    basicAuth:
+      username: "${GRAFANA_PROMETHEUS_USERNAME}"
+      password: "${GRAFANA_API_TOKEN}"
+
+  loki:
+    host: "${GRAFANA_LOKI_HOST}"
+    basicAuth:
+      username: "${GRAFANA_LOKI_USERNAME}"
+      password: "${GRAFANA_API_TOKEN}"
+
+metrics:
+  enabled: true
+
+logs:
+  pod_logs:
+    enabled: true
+  cluster_events:
+    enabled: true
+
+traces:
+  enabled: false
+
+opencost:
+  enabled: false
+
+alloy-metrics:
+  enabled: true
+
+alloy-logs:
+  enabled: true
+
+alloy-events:
+  enabled: true
+
+alloy-profiles:
+  enabled: false
