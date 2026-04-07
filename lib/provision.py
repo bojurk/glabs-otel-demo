@@ -442,6 +442,9 @@ def _discover_datasource_uids(grafana_url: str, token: str) -> dict:
     """
     datasources = _grafana_request(grafana_url, "GET", "/api/datasources", token)
 
+    # Loki datasource UIDs that are not general-purpose log stores
+    _LOKI_EXCLUDE = {"grafanacloud-alert-state-history", "grafanacloud-usage-insights"}
+
     def _pick(type_name: str) -> str:
         matches = [d for d in datasources if d.get("type") == type_name]
         if not matches:
@@ -449,10 +452,19 @@ def _discover_datasource_uids(grafana_url: str, token: str) -> dict:
                 f"No '{type_name}' datasource found in Grafana — "
                 f"make sure telemetry is flowing and the datasource is provisioned."
             )
-        # Prefer the Grafana Cloud hosted one (name contains 'grafanacloud')
-        cloud = [d for d in matches if "grafanacloud" in d.get("name", "").lower()]
-        chosen = cloud[0] if cloud else matches[0]
-        return chosen["uid"]
+        # For Loki, exclude special-purpose datasources (alert state, usage insights)
+        if type_name == "loki":
+            matches = [d for d in matches if d.get("uid") not in _LOKI_EXCLUDE] or matches
+        # Prefer the Grafana Cloud hosted logs datasource (uid ends with -logs)
+        # then any grafanacloud- prefixed one, then first match
+        for preference in [
+            lambda d: d.get("uid", "").endswith("-logs"),
+            lambda d: "grafanacloud" in d.get("name", "").lower(),
+        ]:
+            preferred = [d for d in matches if preference(d)]
+            if preferred:
+                return preferred[0]["uid"]
+        return matches[0]["uid"]
 
     return {
         "__DS_PROMETHEUS__": _pick("prometheus"),
