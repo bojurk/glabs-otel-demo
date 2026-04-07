@@ -7,6 +7,7 @@ the SE's machine needs only gcloud installed — no direct SSH key management.
 """
 
 import base64
+import json
 import os
 import shlex
 import shutil
@@ -14,6 +15,8 @@ import subprocess
 import tempfile
 import textwrap
 import time
+import urllib.error
+import urllib.request
 from pathlib import Path
 from typing import Optional
 
@@ -370,6 +373,115 @@ def validate(config: dict, console: Console):
         )
     else:
         console.print("  [green]✓[/green] Collector logs look clean")
+
+
+# ── Phase: import dashboards ─────────────────────────────────────────────────
+
+def _grafana_request(grafana_url: str, method: str, path: str,
+                     token: str, payload: Optional[dict] = None) -> dict:
+    """Make an authenticated request to the Grafana HTTP API."""
+    url = f"{grafana_url.rstrip('/')}{path}"
+    data = json.dumps(payload).encode() if payload else None
+    req = urllib.request.Request(
+        url, data=data, method=method,
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+        },
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            return json.loads(resp.read())
+    except urllib.error.HTTPError as e:
+        body = e.read().decode(errors="replace")
+        raise RuntimeError(f"Grafana API {method} {path} → {e.code}: {body[:300]}")
+
+
+def _discover_datasource_uids(grafana_url: str, token: str) -> dict:
+    """
+    Return a mapping of placeholder → real UID for the three datasource types
+    we need: prometheus, tempo, loki.
+
+    Grafana Cloud stacks always have exactly one hosted datasource of each type.
+    If multiple exist (e.g. after enabling k8s-monitoring) we prefer the one
+    whose name contains 'grafanacloud' or whose type matches exactly.
+    """
+    datasources = _grafana_request(grafana_url, "GET", "/api/datasources", token)
+
+    def _pick(type_name: str) -> str:
+        matches = [d for d in datasources if d.get("type") == type_name]
+        if not matches:
+            raise RuntimeError(
+                f"No '{type_name}' datasource found in Grafana — "
+                f"make sure telemetry is flowing and the datasource is provisioned."
+            )
+        # Prefer the Grafana Cloud hosted one (name contains 'grafanacloud')
+        cloud = [d for d in matches if "grafanacloud" in d.get("name", "").lower()]
+        chosen = cloud[0] if cloud else matches[0]
+        return chosen["uid"]
+
+    return {
+        "__DS_PROMETHEUS__": _pick("prometheus"),
+        "__DS_TEMPO__":      _pick("tempo"),
+        "__DS_LOKI__":       _pick("loki"),
+    }
+
+
+def import_dashboards(config: dict, console: Console):
+    """
+    Import the pre-patched OTel Demo dashboards into Grafana Cloud via the
+    Grafana HTTP API.  Datasource placeholder UIDs are replaced with the real
+    UIDs discovered from the target Grafana instance.
+    """
+    grafana_url = config["GRAFANA_URL"].rstrip("/")
+    token       = config["GRAFANA_SA_TOKEN"]
+
+    console.print("  [dim]Discovering datasource UIDs...[/dim]")
+    try:
+        uid_map = _discover_datasource_uids(grafana_url, token)
+    except RuntimeError as e:
+        console.print(f"  [yellow]⚠[/yellow]  {e}")
+        console.print("  [dim]Skipping dashboard import — run again once data is flowing.[/dim]")
+        return
+
+    dashboards_dir = _REPO_ROOT / "manifests" / "dashboards"
+    dashboard_files = sorted(dashboards_dir.glob("*.json"))
+
+    if not dashboard_files:
+        console.print("  [yellow]⚠[/yellow]  No dashboard files found in manifests/dashboards/")
+        return
+
+    # Ensure a folder exists for the demo dashboards
+    try:
+        folder_resp = _grafana_request(
+            grafana_url, "POST", "/api/folders", token,
+            {"title": "OTel Demo"},
+        )
+        folder_uid = folder_resp["uid"]
+    except RuntimeError:
+        # Folder may already exist — find it
+        folders = _grafana_request(grafana_url, "GET", "/api/folders", token)
+        existing = [f for f in folders if f.get("title") == "OTel Demo"]
+        folder_uid = existing[0]["uid"] if existing else None
+
+    for path in dashboard_files:
+        text = path.read_text()
+        for placeholder, uid in uid_map.items():
+            text = text.replace(f'"{placeholder}"', f'"{uid}"')
+
+        dashboard = json.loads(text)
+        payload = {
+            "dashboard":  dashboard,
+            "folderUid":  folder_uid,
+            "overwrite":  True,
+            "message":    "imported by otel-lab wizard",
+        }
+        try:
+            _grafana_request(grafana_url, "POST", "/api/dashboards/db", token, payload)
+            console.print(f"  [green]✓[/green] {path.stem}")
+        except RuntimeError as e:
+            console.print(f"  [yellow]⚠[/yellow]  {path.stem}: {e}")
 
 
 # ── Phase: teardown ───────────────────────────────────────────────────────────

@@ -71,6 +71,15 @@ Go to **grafana.com → your org → your stack**. The wizard will ask for:
 | **Grafana Instance ID** | Click the **Grafana** tile → Details → Instance ID (a number) |
 | **API Token** | Access Policies → Create token — set scopes: `metrics:write`, `logs:write`, `traces:write` |
 
+#### Optional — Dashboard auto-import
+
+| Credential | Where to find it |
+|---|---|
+| **Grafana URL** | grafana.com → your stack → Launch Grafana → copy the URL (e.g. `https://yourorg.grafana.net`) |
+| **Service Account Token** | Grafana → Administration → Service Accounts → Add service account (role: **Editor**) → Add token |
+
+The wizard creates an **OTel Demo** folder in your Grafana instance and imports all six dashboards automatically.
+
 #### Optional — Kubernetes infrastructure monitoring
 
 Enabling this deploys Grafana Alloy alongside the demo to scrape cluster/node/pod metrics.
@@ -120,10 +129,18 @@ Browse all metrics. Search `http_server` for OTel Demo request metrics, or `otel
 **Drilldown → Logs**
 All services ranked by log volume. Click any service → Show logs for live lines.
 
-### Collector Overview dashboard
-Search dashboards for **OpenTelemetry Collector** — shows the collector's internal health:
-spans received/exported, batch sizes, memory usage. Populated by `otelcol_*` metrics
-that the collector sends about itself.
+### Imported dashboards (OTel Demo folder)
+
+If you enabled dashboard auto-import, these appear in an **OTel Demo** folder:
+
+| Dashboard | What it shows |
+|---|---|
+| **apm-dashboard** | RED metrics (rate, errors, duration) per service with one-click trace drilldown |
+| **demo-dashboard** | Top-level store overview — throughput and latency across all services |
+| **spanmetrics-dashboard** | Latency quantiles and error rates derived from trace span metrics |
+| **exemplars-dashboard** | Metrics data points linked to specific traces via exemplars |
+| **postgresql-dashboard** | PostgreSQL metrics from the demo's database |
+| **opentelemetry-collector** | Collector internal health — spans received/exported, batch sizes, memory |
 
 ---
 

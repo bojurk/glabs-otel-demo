@@ -46,6 +46,7 @@ from lib.provision import (
     setup_kubernetes,
     deploy_otel_demo,
     deploy_k8s_monitoring,
+    import_dashboards,
     validate,
     teardown_vm,
 )
@@ -66,6 +67,9 @@ _CONFIG_KEYS = [
     "GRAFANA_PROMETHEUS_USERNAME",
     "GRAFANA_LOKI_HOST",
     "GRAFANA_LOKI_USERNAME",
+    # Optional — only set if the user enables dashboard auto-import
+    "GRAFANA_URL",
+    "GRAFANA_SA_TOKEN",
 ]
 
 
@@ -284,6 +288,34 @@ def prompt_config(existing: dict) -> dict:
                     "GRAFANA_LOKI_HOST", "GRAFANA_LOKI_USERNAME"):
             config[key] = ""
 
+    console.print()
+    console.rule("[bold]Dashboard Auto-Import (optional)[/bold]")
+    console.print("  Automatically imports OTel Demo dashboards into your Grafana Cloud instance.")
+    console.print("  Requires a Grafana service account token with [bold]Editor[/bold] role.")
+    console.print()
+    console.print("  [dim]Create one at: Grafana → Administration → Service Accounts → Add service account[/dim]")
+    console.print("  [dim]Set role: Editor, then Add token[/dim]")
+    console.print()
+
+    enable_dashboards = Confirm.ask(
+        "  Enable dashboard auto-import?",
+        default=bool(config.get("GRAFANA_SA_TOKEN")),
+    )
+
+    if enable_dashboards:
+        config["GRAFANA_URL"] = Prompt.ask(
+            "  Grafana URL [dim](e.g. https://yourorg.grafana.net)[/dim]",
+            default=config.get("GRAFANA_URL") or "",
+        )
+        config["GRAFANA_SA_TOKEN"] = Prompt.ask(
+            "  Service Account Token [dim](glsa_... or glc_...)[/dim]",
+            default=config.get("GRAFANA_SA_TOKEN") or "",
+            password=True,
+        )
+    else:
+        for key in ("GRAFANA_URL", "GRAFANA_SA_TOKEN"):
+            config[key] = ""
+
     return config
 
 
@@ -306,6 +338,9 @@ def run_setup(config: dict, skip_vm: bool):
 
     if config.get("GRAFANA_PROMETHEUS_HOST"):
         phases.append(("Deploying K8s Monitoring", lambda: deploy_k8s_monitoring(config, console)))
+
+    if config.get("GRAFANA_SA_TOKEN"):
+        phases.append(("Importing Dashboards", lambda: import_dashboards(config, console)))
 
     phases.append(("Validating", lambda: validate(config, console)))
 
